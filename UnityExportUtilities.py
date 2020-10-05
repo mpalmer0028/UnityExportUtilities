@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import StringProperty, IntProperty, CollectionProperty, FloatProperty
+from bpy.props import StringProperty, IntProperty, CollectionProperty, FloatProperty, BoolProperty
 from bpy.types import PropertyGroup, UIList, Operator, Panel
 
 DEFAULT_DECIMATIONS = [1, 0.5, 0.2, 0.1]
@@ -8,7 +8,7 @@ DEFAULT_DECIMATIONS = [1, 0.5, 0.2, 0.1]
 OPERATIONS
 """
 class Add_Decimation(bpy.types.Operator):
-    """Generate decimated level of detail objects for selected objects"""  # Use this as a tooltip for menu items and buttons.
+    """Add level of detail decimation"""  # Use this as a tooltip for menu items and buttons.
     bl_idname = "object.unity_export_add_decimation"        # Unique identifier for buttons and menu items to reference.
     bl_label = "Add LOD"         # Display name in the interface.
     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
@@ -17,12 +17,47 @@ class Add_Decimation(bpy.types.Operator):
     
     def execute(self, context):        # execute() is called when running the operator.
         scene = context.scene
-        print(scene.decimationField)
         dec = scene.decimations.add()
         dec.value = scene.decimationField
         bpy.ops.object.unity_export_reorder_decimations()
         return {'FINISHED'}    
     
+
+class Generate_LODs(bpy.types.Operator):
+    """Generate decimated level of detail objects for selected objects"""  # Use this as a tooltip for menu items and buttons.
+    bl_idname = "object.unity_export_gen_lods"        # Unique identifier for buttons and menu items to reference.
+    bl_label = "Generate LODs"         # Display name in the interface.
+    bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    
+    
+    def build_LOD(self, obj, name, decimation):
+        new_obj = obj.copy()
+        new_obj.data = obj.data.copy()
+        new_obj.animation_data_clear()
+        new_mod = new_obj.modifiers.new("Decimate", "DECIMATE")
+        new_mod.ratio = decimation
+        new_obj.name = name
+        new_obj.data.name = name
+        obj.users_collection[0].objects.link(new_obj)
+        
+    def execute(self, context):        # execute() is called when running the operator.
+        scene = context.scene
+        decimations = scene.decimations
+    
+        for obj in bpy.context.selected_objects:
+            # build decimated levels
+            if obj is not None:
+                for i in range(1, len(decimations)):
+                    self.build_LOD(obj, obj.name+"_LOD"+str(i), decimations[i].value)
+                 
+                # rename original         
+                obj.name = obj.name+"_LOD0"
+                obj.data.name = obj.name+"_LOD0"
+        return {'FINISHED'} 
+    
+
 class Reorder_Decimation(bpy.types.Operator):
     """Reorder LOD decimations"""  # Use this as a tooltip for menu items and buttons.
     bl_idname = "object.unity_export_reorder_decimations"        # Unique identifier for buttons and menu items to reference.
@@ -52,7 +87,7 @@ class Reorder_Decimation(bpy.types.Operator):
         return {'FINISHED'} 
 
 class Remove_Decimation(bpy.types.Operator):
-    """Remove LOD decimations"""  # Use this as a tooltip for menu items and buttons.
+    """Remove selected LOD decimation"""  # Use this as a tooltip for menu items and buttons.
     bl_idname = "object.unity_export_remove_decimation"        # Unique identifier for buttons and menu items to reference.
     bl_label = "Remove LOD"         # Display name in the interface.
     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
@@ -93,6 +128,7 @@ class DECIMATION_UL_List(UIList):
         elif self.layout_type in {'GRID'}: 
             layout.alignment = 'CENTER' 
             layout.label(text="", icon = 'MESH_PLANE')
+
             
 class UNITY_EXPORT_UTILITIES_PT_PANEL(Panel):
     bl_category = "Edit"
@@ -101,6 +137,7 @@ class UNITY_EXPORT_UTILITIES_PT_PANEL(Panel):
     bl_region_type = "UI"
     bl_context = "objectmode"
     bl_options = {'DEFAULT_CLOSED'}
+    use_filter_show = False
 
     def draw_header(self, context):
         layout = self.layout
@@ -115,12 +152,31 @@ class UNITY_EXPORT_UTILITIES_PT_PANEL(Panel):
         row = layout.row()
         row.label(text="Level of Detail Decimations")
         row = layout.row()
+        
+        
+        box = row.box()
+        row = box.row()
         row.template_list("DECIMATION_UL_List", "", scene, "decimations", scene, "decimationI")
-        row = layout.row()
-        row.prop(scene, "decimationField", text="New Decimation")
-        row = layout.row()
+        
+        row = box.row()
+        row.prop(scene, "decimationField", text="New Decimation:")
+        row = box.row()
         row.operator("object.unity_export_add_decimation", text="Add")
         row.operator("object.unity_export_remove_decimation", text="Remove")
+        row = box.row()
+        
+        row.prop(scene, "sliceMesh", text="Slice Mesh")
+        if scene.sliceMesh:
+            row = box.row()
+            row.prop(scene, "sliceMeshPiecesX", text="Pieces across x:")
+            row = box.row()
+            row.prop(scene, "sliceMeshPiecesY", text="Pieces across y:")
+            row = box.row()
+            row.prop(scene, "sliceMeshPiecesZ", text="Pieces across z:")
+            
+        row = layout.row()
+        row.operator("object.unity_export_gen_lods", text="Generate LOD Objects")
+        
         
 def register():
     bpy.utils.register_class(Add_Decimation)
@@ -129,25 +185,42 @@ def register():
     bpy.utils.register_class(DecimationItem)
     bpy.utils.register_class(UNITY_EXPORT_UTILITIES_PT_PANEL)
     bpy.utils.register_class(DECIMATION_UL_List)  
+    bpy.utils.register_class(Generate_LODs)
+    
+    bpy.types.VIEW3D_MT_object.append(menu_func)
+    
     bpy.types.Scene.decimationField = FloatProperty(name="decimationField", description="Enter a ratio for the LOD's decimation. Between 0-1", 
     default=0.5, min=0.000, max=1.0, step=.1, precision=4)     
     bpy.types.Scene.decimations = CollectionProperty(type=DecimationItem)
     
-    
-        
     bpy.types.Scene.decimationI = IntProperty(name="decimationI", description="Decimation index", default=0)
+    
+    bpy.types.Scene.sliceMeshPiecesX = IntProperty(name="sliceMeshPiecesX", description="Mesh pieces on the x axis", default=1, min=1)
+    bpy.types.Scene.sliceMeshPiecesY = IntProperty(name="sliceMeshPiecesY", description="Mesh pieces on the y axis", default=1, min=1)
+    bpy.types.Scene.sliceMeshPiecesZ = IntProperty(name="sliceMeshPiecesZ", description="Mesh pieces on the z axis", default=1, min=1)
+    
+    bpy.types.Scene.sliceMesh = BoolProperty(name="sliceMesh", description="Slice mesh when generating LODs", default=False)
+    
     #bpy.types.Scene.decimations.clear()
-    bpy.app.handlers.scene_update_post.append(onRegister)
+    bpy.app.handlers.load_post.append(onRegister)
+    
 def unregister():
     del bpy.types.Scene.decimationField
     del bpy.types.Scene.decimations
     del bpy.types.Scene.decimationI
+    del bpy.types.Scene.sliceMeshPiecesX
+    del bpy.types.Scene.sliceMeshPiecesY
+    del bpy.types.Scene.sliceMeshPiecesZ
+    del bpy.types.Scene.sliceMesh
+    
     bpy.utils.unregister_class(UNITY_EXPORT_UTILITIES_PT_PANEL)
     bpy.utils.unregister_class(DECIMATION_UL_List)
     bpy.utils.unregister_class(DecimationItem)
     bpy.utils.unregister_class(Add_Decimation)
     bpy.utils.unregister_class(Remove_Decimation)
     bpy.utils.unregister_class(Reorder_Decimation)
+    bpy.utils.unregister_class(Generate_LODs)
+    bpy.types.VIEW3D_MT_object.remove(menu_func)
 
 
 def onRegister(scene):
@@ -155,9 +228,13 @@ def onRegister(scene):
         dec = bpy.context.scene.decimations.add()
         dec.value = d
     # the handler isn't needed anymore, so remove it
-    bpy.app.handlers.scene_update_post.remove(onRegister)
+    bpy.app.handlers.load_post.remove(onRegister)
     
 #    bpy.utils.register_class(Decimation_UL_List)
+
+def menu_func(self, context):
+    self.layout.operator(Generate_LODs.bl_idname)
+    
 
 if __name__ == "__main__":
     register()
