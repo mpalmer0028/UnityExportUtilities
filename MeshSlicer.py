@@ -50,3 +50,16 @@ bm.to_mesh(me)
 bpy.ops.object.mode_set(mode='EDIT')
 bpy.ops.mesh.separate(type='LOOSE')
 bpy.ops.object.mode_set() 
+
+
+
+class SliceMesh(bpy.types.Operator):
+    """Reorder LOD decimations"""  # Use this as a tooltip for menu items and buttons.
+    bl_idname = "object.unity_export_slice_mesh"        # Unique identifier for buttons and menu items to reference.
+    bl_label = "Slice Mesh"         # Display name in the interface.
+    bl_options = {'REGISTER','UNDO'}  # Enable undo for the operator.
+    
+    def execute(self, context):        # execute() is called when running the operator.
+        scene = context.scene
+
+        return {'FINISHED'} 
